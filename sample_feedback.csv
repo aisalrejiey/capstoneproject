@@ -1,0 +1,9 @@
+source,user,date,text
+ticket,client1,2026-09-10 09:30,"Please add dark mode. Also the export to Excel keeps timing out on large reports."
+email,client2,2026-10-02 14:05,"We need SSO with Okta before we can roll this out to our whole company."
+survey,user1,2026-10-12 11:20,"Love the product but the dashboard is slow and I wish I could use a night theme."
+ticket,client1,2026-08-25 16:45,"Exports fail for anything over 50k rows. Blocking our month-end close."
+form,client3,2026-10-15 10:00,"Can you support single sign-on via Azure AD? Security team requires it."
+email,user2,2026-10-17 08:40,"A mobile app would be great for checking stats on the go."
+survey,tester1,2026-10-18 13:15,"Dark theme please! My eyes hurt at night."
+ticket,developer1,2026-10-19 09:00,"Would like scheduled email reports every Monday."

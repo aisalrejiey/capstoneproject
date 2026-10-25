@@ -1,0 +1,68 @@
+VOC ENHANCEMENT TRACKER (AZURE OPENAI ONLY) - SETUP
+
+1. Unzip voc-tracker-azure.zip, open a terminal in the folder:   cd voc-tracker-azure
+
+2. Create and activate a virtual environment
+     Windows:    python -m venv .venv   then   .venv\Scripts\activate
+     Mac/Linux:  python -m venv .venv   then   source .venv/bin/activate
+
+3. Install:   pip install -r requirements.txt
+
+4. Create your .env file (same folder as app.py, named exactly .env):
+     Windows:    copy .env.example .env
+     Mac/Linux:  cp .env.example .env
+
+5. Fill in the three credentials:
+     AZURE_OPENAI_ENDPOINT          Azure portal -> your resource -> Keys and Endpoint -> Endpoint
+     AZURE_OPENAI_API_KEY           same page -> KEY 1
+     AZURE_OPENAI_DEPLOYMENT_NAME   Foundry portal -> Deployments -> the NAME of your chat deployment
+                                    (e.g. gpt-5-mini)
+   Optional but recommended:
+     AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME   name of a deployed embedding model
+                                    (e.g. text-embedding-3-small). Leave empty to cluster locally.
+
+6. Start:   streamlit run app.py     (opens http://localhost:8501)
+
+7. In the sidebar click "Test connection" (costs 1-2 API calls).
+
+8. Add feedback (paste, or import sample_feedback.csv) -> Analyze -> Run analysis -> Ranked themes.
+   Watch the terminal: every result and error is printed there.
+
+SAFETY LIMITS (edit in .env, defaults shown in .env.example)
+  MAX_CALLS_PER_RUN=60, MAX_CALLS_PER_DAY=300, MAX_ITEMS_PER_RUN=30, MAX_ATTEMPTS=3,
+  MAX_CONSECUTIVE_FAILURES=3. If a run stops early, the red message explains why.
+
+TROUBLESHOOTING
+  getaddrinfo failed / Connection error   the endpoint host can't be reached. The sidebar shows the host
+                                 the app uses; it must match your working endpoint exactly
+                                 (e.g. voc-project.services.ai.azure.com). Still "YOUR-RESOURCE"? Edit .env.
+                                 Also check VPN/proxy. Run: python -c "import llm; print(llm._cfg()[0])"
+  Missing in .env ...            .env not found / wrong name (not .env.txt) / values empty.
+  404 DeploymentNotFound         deployment NAME in .env doesn't match Foundry exactly.
+  401                            wrong key or endpoint.
+  429 / quota                    wait, then run again; the app stops immediately on 429.
+  CERTIFICATE_VERIFY_FAILED      company proxy: set SSL_CERT_FILE in .env to your root CA .pem.
+  Empty/odd output on GPT-5      raise MAX_OUTPUT_TOKENS or set AZURE_REASONING_EFFORT=low.
+  Old voc.db from earlier version  it is auto-backed-up and replaced with the new schema.
+
+RAISED-BY / ROLES
+  Manual: choose Raised by (user/client/developer/tester) and a number. Result e.g. client2.
+  CSV: columns source,user,text  (user examples: client2, user1, developer3, tester4).
+  Role weights (edit ROLE_WEIGHTS in .env): client 1.5, user 1.0, tester 0.8, developer 0.7.
+  After changing weights, click Run analysis to recompute scores.
+
+AUTO NUMBERING
+  Manual: leave "No." blank and the next free number for that role is used (client1, client2 -> client3).
+  Type a number to reuse a person (the page shows how many entries that person already has).
+  CSV: "client2" = that person; "client" alone = next free number (explicit numbers in the file are kept as-is).
+  Numbers come from the entries currently stored, so deleting every entry of the highest number frees it.
+
+DATE / TIME, AGE AND REPEAT BOOSTS
+  Every entry has a date and time. Manual: defaults to now; tick "Set date and time manually" to choose one.
+  CSV: a date column (date / datetime / date and time / timestamp; e.g. 2026-10-01 14:30) is used as the
+  entry's date, NOT the upload time. Blank = now. Re-importing a CSV updates dates of matching entries.
+  Urgency % = model urgency x role weight x (1 + age boost + repeat boost), capped at 100%.
+    Age boost:    +5% per 10 days since the entry's date, max +30% (reached at 60 days).
+    Repeat boost: +5% for each extra request on the same theme (any people), max +20% (reached at 5 requests).
+  Theme score = 40% weighted volume + 40% final urgency + 20% negative share.
+  Each theme shows a one-sentence "Why" (no API calls).

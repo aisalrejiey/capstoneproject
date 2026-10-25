@@ -1,0 +1,11 @@
+streamlit
+langchain-core
+langchain-openai
+openai
+pydantic>=2
+numpy
+pandas
+scikit-learn
+python-dotenv
+truststore
+altair>=5
