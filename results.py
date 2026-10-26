@@ -10,6 +10,7 @@ import streamlit as st
 
 import db
 import roles
+import theme
 
 
 def add_urgency_cols(df, n_in_theme):
@@ -81,7 +82,12 @@ def _stamp(series):
 
 # ---------------------------------------------------------------- admin: tasks waiting for review
 def render_completed_review(data):
-    """Admin Access: tasks users marked Completed, with Verify / Repost."""
+    """Admin Access: tasks users marked Completed, with Verify / Repost (in a pale-blue panel)."""
+    with st.container(key="review_panel"):
+        _completed_review_body(data)
+
+
+def _completed_review_body(data):
     reqs, themes = data["requests"], data["themes"]
     st.subheader("Completed tasks · awaiting verification")
     done = reqs[reqs["status"] == "Completed"]
@@ -96,7 +102,8 @@ def render_completed_review(data):
         ids = [int(i) for i in d["id"]]
         name = names.get(d["theme_id"].iloc[0]) or d["summary"].iloc[0][:60]
         with st.container(border=True):
-            st.markdown(f"**{name}**  ·  {len(d)} request(s)  ·  submitted {_stamp(d['completed_at']).iloc[0]}")
+            st.markdown(f"**{name}** {theme.pill('Completed')}  ·  {len(d)} request(s)  ·  "
+                        f"submitted {_stamp(d['completed_at']).iloc[0]}", unsafe_allow_html=True)
             st.dataframe(d[["summary", "raised_by", "category", "sentiment"]],
                          width="stretch", hide_index=True)
             b1, b2, _ = st.columns([1, 1, 4])
@@ -117,8 +124,9 @@ def render_ranked_themes(data, empty_text="No themes yet. Add feedback and click
     elif shown.empty:
         st.caption("No active tasks. Every task has been completed.")
     else:
-        st.bar_chart(shown.set_index("name")["score"], color="#111111", horizontal=True,
-                     x_label="Priority score (0-100)", y_label="")
+        with st.container(key="chart_card"):                      # white card behind the chart
+            st.bar_chart(shown.set_index("name")["score"], color=theme.TEXT2, horizontal=True,
+                         x_label="Priority score (0-100)", y_label="")
         st.caption("Urgency % = model urgency × role weight × (1 + age boost + repeat boost), capped at 100%. "
                    "adj_urgency = after the role weight only.")
         for _, t in shown.iterrows():
@@ -140,12 +148,17 @@ def render_ranked_themes(data, empty_text="No themes yet. Add feedback and click
                 st.dataframe(d[["summary", "raised_by", "added", "source", "category", "sentiment", "urgency",
                                 "adj_urgency", "age_boost_pct", "repeat_boost_pct", "urgency_pct"]],
                              width="stretch", hide_index=True)
-                st.button("✓ Completed", key=f"done_{ids[0]}", on_click=_complete, args=(ids, t["name"]),
+                st.button("✓ Completed", key=f"done_{ids[0]}", on_click=_complete, args=(ids, t["name"]), type="primary",
                           help="Mark this task as completed. It leaves your list and goes to an admin for verification.")
 
 
 def render_all_requests(data):
-    """Admin Access: every extracted request with its status and the two task timestamps."""
+    """Admin Access: every extracted request with its status and the two task timestamps (in a light-gray panel)."""
+    with st.container(key="requests_panel"):
+        _all_requests_body(data)
+
+
+def _all_requests_body(data):
     reqs = data["requests"]
     with st.expander("All extracted requests"):
         allr = reqs.rename(columns={"theme_id": "theme"}).copy()
@@ -154,6 +167,7 @@ def render_all_requests(data):
         allr["Task Submitted At"] = _stamp(allr.pop("completed_at"))     # when the user clicked Completed
         allr["Task Verified At"] = _stamp(allr.pop("verified_at"))       # when an admin clicked Verify (else empty)
         allr = add_urgency_cols(allr, n_theme)
+        allr["status"] = allr["status"].map(lambda x: f"{theme.STATUS_DOT.get(x, '')} {x}".strip())
         st.dataframe(allr[["id", "summary", "raised_by", "added", "source", "category", "sentiment", "urgency",
                            "adj_urgency", "age_boost_pct", "repeat_boost_pct", "urgency_pct", "theme",
                            "status", "Task Submitted At", "Task Verified At"]],

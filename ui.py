@@ -2,8 +2,8 @@
 
 - Router: st.session_state["view"] mirrored to the URL (?view=user / ?view=admin), so a browser refresh or a
   bookmarked link stays on the same page. Home has no query string.
-- Home: dark cherry red background, centered title + two muted text options (hover = grow slightly + white).
-  Other pages: white background (animated transition).
+- Home: light enterprise theme (colours from theme.py), centered title with a yellow accent + two muted text options
+  (hover = grow slightly + blue).
 - Other views: title slides to the top-left, the options become a horizontal nav bar (active = black, larger),
   a thin divider, then the page content fades/slides up.
 - All animation is plain CSS and is switched off for users who prefer reduced motion.
@@ -15,15 +15,15 @@ import os
 import streamlit as st
 
 import analytics
+import theme
 
 TITLE = "VOC Enhancement Tracker"
 SUBTITLE = "Customer feedback → enhancement requests → ranked themes"
 VIEWS = {"user": "User Access", "admin": "Admin Access"}
-GRAY, BLACK = "#9AA0A6", "#111111"
+GRAY, BLACK, BLUE = theme.MUTED, theme.TEXT, theme.PRIMARY
 
 CSS = """
 <style>
-.block-container{padding-top:2.2rem !important;padding-bottom:6.5rem !important;}   /* room for the Aira bubble */
 
 /* ---- text-style buttons (nav options + title) ---- */
 .st-key-voc_home button,.st-key-voc_top button{background:transparent !important;border:none !important;
@@ -33,14 +33,15 @@ CSS = """
 .st-key-voc_home button{font-size:1.4rem;font-weight:500;}
 .st-key-voc_top button{font-size:1.05rem;font-weight:500;}
 .st-key-voc_home button:hover,.st-key-voc_home button:focus-visible,
-.st-key-voc_top button:hover,.st-key-voc_top button:focus-visible{color:__BLACK__ !important;transform:scale(1.08);}
-.st-key-voc_home button:focus-visible,.st-key-voc_top button:focus-visible{outline:2px solid __BLACK__;outline-offset:3px;}
+.st-key-voc_top button:hover,.st-key-voc_top button:focus-visible{color:__BLUE__ !important;transform:scale(1.08);}
+.st-key-voc_home button:focus-visible,.st-key-voc_top button:focus-visible{outline:2px solid __BLUE__;outline-offset:3px;}
 
 /* ---- home ---- */
 .st-key-voc_home{margin-top:12vh;}
 .voc-hero{text-align:center;animation:voc-fade .5s ease both;}
 .voc-title-home{font-size:3rem;font-weight:700;letter-spacing:-.03em;color:__BLACK__;line-height:1.15;}
-.voc-sub{color:__GRAY__;margin:.6rem 0 2.2rem;font-size:1.05rem;}
+.voc-title-home::after{content:"";display:block;width:72px;height:4px;border-radius:2px;background:__YELLOW__;margin:1rem auto 0;}
+.voc-sub{color:__TEXT2__;margin:.6rem 0 2.2rem;font-size:1.05rem;}
 .st-key-voc_home [data-testid="stHorizontalBlock"]{justify-content:center;gap:2.5rem;flex-wrap:wrap;}
 
 /* ---- top bar (non-home views) ---- */
@@ -52,7 +53,7 @@ CSS = """
 .st-key-title_home button{font-size:1.5rem !important;font-weight:700 !important;letter-spacing:-.02em;
   color:__BLACK__ !important;padding-left:0 !important;}
 .st-key-nav_user,.st-key-nav_admin{animation:voc-nav-in .45s ease both;}
-.voc-divider{border:0;border-top:1px solid #E3E5E8;margin:.4rem 0 1.4rem;animation:voc-fade .5s ease both;}
+.voc-divider{border:0;border-top:1px solid __BORDER__;margin:.4rem 0 1.4rem;animation:voc-fade .5s ease both;}
 
 /* ---- page content ---- */
 [class*="st-key-voc_page_"]{animation:voc-rise .35s ease both;}
@@ -74,30 +75,7 @@ CSS = """
   .st-key-voc_home button,.st-key-voc_top button{transition:none !important;transform:none !important;}
 }
 </style>
-""".replace("__GRAY__", GRAY).replace("__BLACK__", BLACK)
-
-
-CHERRY_DARK = "#A50A1A"      # dark cherry red (a true red, not purple-leaning burgundy)
-
-# page background: white everywhere, dark cherry on the landing page; .stApp transitions between them
-BASE_THEME = """
-<style>
-.stApp{background:#FFFFFF;transition:background-color .45s ease;}
-[data-testid="stHeader"]{background:transparent;}
-@media (prefers-reduced-motion:reduce){.stApp{transition:none !important;}}
-</style>
-"""
-HOME_THEME = f"""
-<style>
-.stApp{{background:{CHERRY_DARK} !important;}}
-[data-testid="stHeader"] *{{color:#fff !important;}}
-.voc-title-home{{color:#fff;}}
-.voc-sub{{color:rgba(255,255,255,.8);}}
-.st-key-voc_home button{{color:rgba(255,255,255,.62) !important;}}
-.st-key-voc_home button:hover,.st-key-voc_home button:focus-visible{{color:#fff !important;}}
-.st-key-voc_home button:focus-visible{{outline-color:#fff;}}
-</style>
-"""
+""".replace("__GRAY__", GRAY).replace("__BLACK__", BLACK).replace("__BLUE__", BLUE).replace("__TEXT2__", theme.TEXT2).replace("__YELLOW__", theme.YELLOW).replace("__BORDER__", theme.BORDER)
 
 
 # ---------------------------------------------------------------- router
@@ -126,7 +104,7 @@ def link_button(label, view, key, **kw):
 # ---------------------------------------------------------------- chrome
 def render_chrome(view):
     """Title + navigation. Home = centered; other views = top bar with divider."""
-    st.markdown(CSS + BASE_THEME + (HOME_THEME if view == "home" else ""), unsafe_allow_html=True)
+    st.markdown(CSS, unsafe_allow_html=True)
     if view == "home":
         with st.container(key="voc_home"):
             st.markdown(f'<div class="voc-hero"><div role="heading" aria-level="1" class="voc-title-home">{TITLE}</div>'
@@ -140,7 +118,7 @@ def render_chrome(view):
         return
 
     # active option: black + slightly larger (rules are generated for the current view only)
-    st.markdown(f"<style>.st-key-nav_{view} button{{color:{BLACK} !important;font-weight:650 !important;"
+    st.markdown(f"<style>.st-key-nav_{view} button{{color:{BLUE} !important;font-weight:650 !important;"
                 f"transform:scale(1.12) !important;}}</style>", unsafe_allow_html=True)
     with st.container(key="voc_top"):
         c_title, c_user, c_admin = st.columns(3)

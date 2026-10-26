@@ -1,4 +1,4 @@
-"""Aira: floating red-and-white chat assistant for the VOC Enhancement Tracker.
+"""Aira: floating chat assistant for the VOC Enhancement Tracker.
 
 Aira reads the tracker's own data (ranked themes = the task list, who raised them, urgency, age, sentiment,
 and feedback still waiting for analysis) and explains what to work on next and why.
@@ -23,6 +23,7 @@ import streamlit as st
 import db
 import llm
 import roles
+import theme
 from llm import log, setting
 
 NO_DATA = "NO_DATA"          # the model answers exactly this when the data cannot answer the question
@@ -180,56 +181,41 @@ def ask(history):
 # ---------------------------------------------------------------- UI
 LOGO = ("url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E"
         "%3Cpath d='M16 3C8.8 3 3 8 3 14.2c0 3.4 1.7 6.4 4.4 8.4L6 29l6.2-3.2c1.2.3 2.4.5 3.8.5 7.2 0 13-5 13-11.1S23.2 3 16 3z' fill='white'/%3E"
-        "%3Cpath d='M10.5 19.5 16 8l5.5 11.5M12.6 15.5h6.8' fill='none' stroke='%23D2042D' stroke-width='2.4' "
+        "%3Cpath d='M10.5 19.5 16 8l5.5 11.5M12.6 15.5h6.8' fill='none' stroke='%232563EB' stroke-width='2.4' "
         "stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\")")
-
-LOGO_RED = LOGO.replace("fill='white'", "fill='%23D2042D'").replace("stroke='%23D2042D'", "stroke='white'")
 
 CSS = """
 <style>
 /* floating red bubble, bottom-right */
 .st-key-aira_widget{position:fixed;bottom:24px;right:24px;z-index:999990;width:auto !important;}
 .st-key-aira_widget button{width:62px;height:62px;min-height:62px;padding:0;border-radius:50%;
-  background:#D2042D;border:3px solid #fff;box-shadow:0 6px 18px rgba(210,4,45,.45);
+  background:__PRIMARY__;border:3px solid #fff;box-shadow:0 6px 18px rgba(37,99,235,.45);
   display:flex;align-items:center;justify-content:center;transition:transform .15s,background-color .4s;animation:aira-pulse 2.6s infinite;}
-.st-key-aira_widget button:hover{transform:scale(1.08);background:#A60323;border-color:#fff;}
+.st-key-aira_widget button:hover{transform:scale(1.08);background:__PRIMARY_HOVER__;border-color:#fff;}
 .st-key-aira_widget button *{display:none !important;}
 .st-key-aira_widget button::before{content:"";width:34px;height:34px;background:__LOGO__ center/contain no-repeat;}
-@keyframes aira-pulse{0%{box-shadow:0 0 0 0 rgba(210,4,45,.5)}70%{box-shadow:0 0 0 16px rgba(210,4,45,0)}100%{box-shadow:0 0 0 0 rgba(210,4,45,0)}}
+@keyframes aira-pulse{0%{box-shadow:0 0 0 0 rgba(37,99,235,.5)}70%{box-shadow:0 0 0 16px rgba(37,99,235,0)}100%{box-shadow:0 0 0 0 rgba(37,99,235,0)}}
 
 /* chat window */
 div[data-testid="stPopoverBody"]:has(.st-key-aira_body){width:min(400px,92vw);max-height:84vh;
-  border:2px solid #D2042D;border-radius:16px;background:#fff;}
-.aira-head{display:flex;align-items:center;gap:12px;background:#D2042D;color:#fff;border-radius:12px;padding:10px 14px;}
+  border:1px solid __BORDER__;border-radius:16px;background:#fff;box-shadow:0 8px 24px rgba(17,24,39,.15);}
+.aira-head{display:flex;align-items:center;gap:12px;background:__PRIMARY__;color:#fff;border-radius:12px;padding:10px 14px;}
 .aira-logo{width:36px;height:36px;flex:none;background:__LOGO__ center/contain no-repeat;}
 .aira-head b{font-size:1.1rem;display:block;line-height:1.2;color:#fff;}
 .aira-head span{font-size:.78rem;opacity:.9;color:#fff;}
 .st-key-aira_body [data-testid="stChatMessage"]{border-radius:12px;padding:.55rem .7rem;font-size:.9rem;}
 .st-key-aira_body [data-testid="stChatMessage"] p{margin-bottom:.4rem;}
-.st-key-aira_body [data-testid="stChatMessageAvatarAssistant"]{background:#D2042D;color:#fff;}
-.st-key-aira_body [data-testid="stChatMessageAvatarUser"]{background:#111;color:#fff;}
-.st-key-aira_body .stButton>button{border:1px solid #D2042D;color:#D2042D;background:#fff;border-radius:999px;
+.st-key-aira_body [data-testid="stChatMessageAvatarAssistant"]{background:__PRIMARY__;color:#fff;}
+.st-key-aira_body [data-testid="stChatMessageAvatarUser"]{background:__TEXT2__;color:#fff;}
+.st-key-aira_body .stButton>button{border:1px solid __PRIMARY__;color:__PRIMARY__;background:#fff;border-radius:999px;
   font-size:.78rem;padding:.15rem .6rem;min-height:2rem;width:100%;}
-.st-key-aira_body .stButton>button:hover{background:#D2042D;color:#fff;border-color:#D2042D;}
-.st-key-aira_body [data-testid="stFormSubmitButton"] button{background:#D2042D !important;color:#fff !important;
-  border:1px solid #D2042D !important;border-radius:999px;}
-.st-key-aira_body [data-testid="stFormSubmitButton"] button:hover{background:#A60323 !important;}
+.st-key-aira_body .stButton>button:hover{background:__PRIMARY__;color:#fff;border-color:__PRIMARY__;}
+.st-key-aira_body [data-testid="stFormSubmitButton"] button{background:__PRIMARY__ !important;color:#fff !important;
+  border:1px solid __PRIMARY__ !important;border-radius:999px;}
+.st-key-aira_body [data-testid="stFormSubmitButton"] button:hover{background:__PRIMARY_HOVER__ !important;}
 .st-key-aira_body [data-testid="stForm"]{border:none;padding:0;}
 </style>
-""".replace("__LOGO__", LOGO)
-
-
-ON_DARK = """
-<style>
-/* landing page (dark cherry background): white bubble with a cherry logo */
-.st-key-aira_widget button{background:#fff !important;border-color:#fff !important;animation-name:aira-pulse-light;}
-.st-key-aira_widget button:hover{background:#FDECEF !important;}
-.st-key-aira_widget button::before{background:__LOGO_RED__ center/contain no-repeat !important;}
-@keyframes aira-pulse-light{0%{box-shadow:0 0 0 0 rgba(255,255,255,.55)}70%{box-shadow:0 0 0 16px rgba(255,255,255,0)}100%{box-shadow:0 0 0 0 rgba(255,255,255,0)}}
-div[data-testid="stPopoverBody"]:has(.st-key-aira_body){border-color:#fff;}
-@media (prefers-reduced-motion:reduce){.st-key-aira_widget button{animation:none !important;}}
-</style>
-""".replace("__LOGO_RED__", LOGO_RED)
+""".replace("__LOGO__", LOGO).replace("__PRIMARY_HOVER__", theme.PRIMARY_HOVER).replace("__PRIMARY__", theme.PRIMARY).replace("__TEXT2__", theme.TEXT2).replace("__BORDER__", theme.BORDER)
 
 
 def _submit(text=None):
@@ -250,12 +236,11 @@ def _show(m):
         st.markdown(m["content"])
 
 
-def render(on_dark=False):
-    """Call once at the end of app.py. Draws the bubble (bottom-right) and the chat window.
-    on_dark=True (landing page): white bubble.  Otherwise: cherry-red bubble."""
+def render():
+    """Call once at the end of app.py. Draws the blue bubble (bottom-right) and the chat window on every view."""
     st.session_state.setdefault("aira_msgs", [])
     st.session_state.setdefault("aira_pending", False)
-    st.markdown(CSS + (ON_DARK if on_dark else ""), unsafe_allow_html=True)
+    st.markdown(CSS, unsafe_allow_html=True)
 
     with st.container(key="aira_widget"):
         with st.popover("Aira", help="Chat with Aira"):

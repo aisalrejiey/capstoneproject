@@ -10,6 +10,7 @@ import llm
 import pipeline
 import results
 import roles
+import theme
 import ui
 from llm import setting
 
@@ -17,16 +18,7 @@ st.set_page_config(page_title="VOC Enhancement Tracker", page_icon="⬛", layout
 db.init()
 
 # Black & white look: neutral alert boxes, black primary buttons
-st.markdown("""
-<style>
-div[data-testid="stAlert"]{background:#F4F4F4;border:1px solid #111;border-radius:6px;}
-div[data-testid="stAlert"] *{color:#111 !important;}
-div[data-testid="stAlert"] svg{fill:#111 !important;}
-.stButton>button[kind="primary"]{background:#111;color:#fff;border:1px solid #111;}
-.stButton>button[kind="primary"]:hover{background:#333;border-color:#333;color:#fff;}
-h1{font-weight:700;letter-spacing:-0.02em;}
-</style>
-""", unsafe_allow_html=True)
+st.markdown(theme.GLOBAL_CSS, unsafe_allow_html=True)            # shared theme (colours live in theme.py)
 
 MAX_ATTEMPTS = setting("MAX_ATTEMPTS", 3)
 W = roles.weights()
@@ -98,11 +90,12 @@ def admin_page():
 
     # ---------- header + counters ----------
     cn = db.counts(MAX_ATTEMPTS)
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Feedback items", cn["total"])
-    m2.metric("Analyzed", cn["done"])
-    m3.metric("Pending", cn["pending"])
-    m4.metric("Parked (errors)", cn["failed"])
+    with st.container(key="kpi_band_admin"):
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Feedback items", cn["total"])
+        m2.metric("Analyzed", cn["done"])
+        m3.metric("Pending", cn["pending"])
+        m4.metric("Parked (errors)", cn["failed"])
 
     flash = st.session_state.pop("flash", None)
     if flash:
@@ -276,11 +269,12 @@ def user_page():
         ui.link_button("Go to Admin Access", "admin", "user_to_admin", type="primary")
         return
     pend = data["requests"][data["requests"]["status"] == "Pending"]       # loaded state
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Active themes", pend["theme_id"].nunique())
-    m2.metric("Active requests", len(pend))
-    m3.metric("Completed (awaiting verification)", int((data["requests"]["status"] == "Completed").sum()))
-    m4.metric("Verified", int((data["requests"]["status"] == "Verified").sum()))
+    with st.container(key="kpi_band"):
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Active themes", pend["theme_id"].nunique())
+        m2.metric("Active requests", len(pend))
+        m3.metric("Completed (awaiting verification)", int((data["requests"]["status"] == "Completed").sum()))
+        m4.metric("Verified", int((data["requests"]["status"] == "Verified").sum()))
     results.render_ranked_themes(data)                  # User Access: ranked themes only
 
 
@@ -292,4 +286,4 @@ if view != "home":
         user_page() if view == "user" else admin_page()
 
 # ---------- Aira chat bubble (bottom-right, on every view) ----------
-aira.render(on_dark=(view == "home"))
+aira.render()

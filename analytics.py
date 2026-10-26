@@ -14,17 +14,15 @@ import pandas as pd
 import streamlit as st
 
 import db
+import theme
 
 MONTHS = ["Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"]
 QUARTERS = ["Q1 (Apr–Jun)", "Q2 (Jul–Sep)", "Q3 (Oct–Dec)", "Q4 (Jan–Mar)"]
 RAISED, RESOLVED = "Requests Raised", "Requests Resolved"
-SERIES_COLORS = ["#A50A1A", "#2B2B2B"]                 # dark cherry red / charcoal
-
-# Fixed colour per category (cherry, muted reds, black, charcoal and grays) so a category never changes colour.
-CATEGORY_ORDER = ["UI/UX", "Performance", "Integration", "Security", "Reporting", "Mobile", "Other"]
-CATEGORY_COLORS = {"UI/UX": "#A50A1A", "Performance": "#111111", "Integration": "#E0606F", "Security": "#5A5A5A",
-                   "Reporting": "#C2C2C2", "Mobile": "#F2B1B8", "Other": "#8C8C8C"}
-EXTRA_COLORS = ["#7B1A24", "#3D3D3D", "#A9A9A9", "#D98A93"]  # only for categories not in the list above
+SERIES_COLORS = [theme.RAISED, theme.RESOLVED]            # blue / green
+CATEGORY_ORDER = ["UI/UX", "Performance", "Integration", "Reporting", "Mobile", "Security", "Other"]
+CATEGORY_COLORS = theme.CATEGORY_COLORS                    # fixed colour per category, same everywhere in the app
+EXTRA_COLORS = theme.EXTRA_COLORS                          # only for categories that are not listed above
 
 
 # ---------------------------------------------------------------- financial years and periods
@@ -118,13 +116,13 @@ def _grouped_bars(rows, series, colors, freq, labels_on):
                  alt.Tooltip("count:Q", title="Requests")])
     chart = base.mark_bar(cornerRadiusTopLeft=2, cornerRadiusTopRight=2)
     if labels_on:                                                     # numbers above bars, including 0
-        chart = chart + base.mark_text(dy=-7, fontSize=11, color="#222222").encode(text="count:Q")
+        chart = chart + base.mark_text(dy=-7, fontSize=11, color=theme.TEXT).encode(text="count:Q")
     return (chart.properties(height=320)
-            .configure(background="#FFFFFF", font="Inter, 'Segoe UI', Helvetica, Arial, sans-serif")
+            .configure(background=theme.CARD, font="Inter, 'Segoe UI', Helvetica, Arial, sans-serif")
             .configure_view(stroke=None)
-            .configure_axis(labelColor="#333333", titleColor="#333333", gridColor="#E4E4E4", domainColor="#BDBDBD",
-                            tickColor="#BDBDBD", labelFontSize=12, titleFontSize=12)
-            .configure_legend(labelColor="#222222", labelFontSize=12, symbolSize=110))
+            .configure_axis(labelColor=theme.TEXT2, titleColor=theme.TEXT2, gridColor=theme.BORDER, domainColor=theme.BORDER,
+                            tickColor=theme.BORDER, labelFontSize=12, titleFontSize=12)
+            .configure_legend(labelColor=theme.TEXT2, labelFontSize=12, symbolSize=110))
 
 
 def _show(chart):
@@ -137,25 +135,28 @@ def _show(chart):
 # ---------------------------------------------------------------- UI
 CSS = """
 <style>
-.st-key-voc_charts{background:#FFFFFF;border-radius:18px;padding:1.6rem 1.8rem 1.3rem;margin:9vh auto 0;
-  width:min(1080px,100%);box-shadow:0 14px 40px rgba(0,0,0,.30);color:#1B1B1B;}
-.voc-card-title{font-size:1.3rem;font-weight:700;color:#111;letter-spacing:-.01em;}
-.voc-card-sub{color:#666;font-size:.9rem;margin-top:.15rem;}
-.voc-chart-h{font-weight:650;color:#111;font-size:1.02rem;margin:1.1rem 0 .1rem;}
-.voc-note{color:#666;font-size:.8rem;margin-top:.6rem;}
-.st-key-voc_charts label p{color:#333;font-weight:600;font-size:.85rem;}
-.st-key-voc_charts [data-baseweb="select"]>div{background:#fff;border:1px solid #CFCFCF;border-radius:8px;color:#111;}
-.st-key-voc_charts [data-baseweb="select"]>div:hover,.st-key-voc_charts [data-baseweb="select"]>div:focus-within{border-color:#A50A1A;}
-ul[role="listbox"] li[aria-selected="true"]{background:#FBE9EB !important;}
+.st-key-voc_charts{background:__CARD__;border:1px solid __BORDER__;border-radius:14px;padding:1.5rem 1.7rem 1.2rem;
+  margin:7vh auto 0;width:min(1080px,100%);box-shadow:0 1px 3px rgba(17,24,39,.06);color:__TEXT__;}
+.voc-card-title{font-size:1.3rem;font-weight:700;color:__TEXT__;letter-spacing:-.01em;}
+.voc-card-sub{color:__TEXT2__;font-size:.9rem;margin-top:.15rem;}
+.voc-chart-h{font-weight:650;color:__TEXT__;font-size:1.02rem;margin:1.1rem 0 .1rem;}
+.voc-note{color:__MUTED__;font-size:.8rem;margin-top:.6rem;}
+.st-key-voc_charts label p{color:__TEXT2__;font-weight:600;font-size:.85rem;}
+.st-key-voc_charts [data-baseweb="select"]>div{background:__CARD__;border:1px solid __BORDER__;border-radius:8px;color:__TEXT__;}
+.st-key-voc_charts [data-baseweb="select"]>div:hover,.st-key-voc_charts [data-baseweb="select"]>div:focus-within{border-color:__PRIMARY__;}
+ul[role="listbox"] li[aria-selected="true"]{background:__TINT_BLUE__ !important;}
 .st-key-voc_charts [class*="st-key-freq_"] button{border-radius:999px;padding:.2rem 1.1rem;min-height:2.3rem;
-  border:1px solid #A50A1A;background:#fff;color:#A50A1A;transition:background-color .2s,color .2s;}
+  border:1px solid __BORDER__;background:__CARD__;color:__TEXT2__;transition:background-color .2s,color .2s,border-color .2s;}
 .st-key-voc_charts [class*="st-key-freq_"] button p{color:inherit;font-size:.9rem;}
-.st-key-voc_charts [class*="st-key-freq_"] button:hover{background:#FBE9EB;color:#A50A1A;border-color:#A50A1A;}
-.st-key-voc_charts [class*="st-key-freq_"] button:focus-visible{outline:2px solid #111;outline-offset:2px;}
-@media (max-width:640px){.st-key-voc_charts{padding:1.1rem 1rem;margin-top:6vh;}}
+.st-key-voc_charts [class*="st-key-freq_"] button:hover{background:__TINT_BLUE__;color:__PRIMARY__;border-color:__PRIMARY__;}
+.st-key-voc_charts [class*="st-key-freq_"] button:focus-visible{outline:2px solid __PRIMARY__;outline-offset:2px;}
+@media (max-width:640px){.st-key-voc_charts{padding:1.1rem 1rem;margin-top:5vh;}}
 @media (prefers-reduced-motion:reduce){.st-key-voc_charts [class*="st-key-freq_"] button{transition:none;}}
 </style>
 """
+for _k, _v in {"CARD": theme.CARD, "BORDER": theme.BORDER, "TEXT": theme.TEXT, "TEXT2": theme.TEXT2, "MUTED": theme.MUTED,
+               "PRIMARY": theme.PRIMARY, "TINT_BLUE": theme.TINT_BLUE}.items():
+    CSS = CSS.replace(f"__{_k}__", _v)
 
 
 def _set_freq(freq):
@@ -166,8 +167,8 @@ def render():
     """Landing page: the white card with both charts (below the title and navigation)."""
     st.session_state.setdefault("home_freq", "Monthly")
     freq = st.session_state["home_freq"]
-    active = (f"<style>.st-key-voc_charts .st-key-freq_{freq} button{{background:#A50A1A !important;"
-              f"color:#fff !important;border-color:#A50A1A !important;}}</style>")
+    active = (f"<style>.st-key-voc_charts .st-key-freq_{freq} button{{background:{theme.PRIMARY} !important;"
+              f"color:#fff !important;border-color:{theme.PRIMARY} !important;}}</style>")
     st.markdown(CSS + active, unsafe_allow_html=True)
     with st.container(key="voc_charts"):
         st.markdown('<div class="voc-card-title">Request overview</div>'
