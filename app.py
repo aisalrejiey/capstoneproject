@@ -8,6 +8,8 @@ import aira
 import db
 import llm
 import pipeline
+import policy
+import rag
 import results
 import roles
 import theme
@@ -87,6 +89,8 @@ def admin_page():
         st.caption(f"Age boost: +{setting('AGE_BOOST_PCT_PER_STEP', 5)}% urgency per {setting('AGE_STEP_DAYS', 10)} days "
                    f"(max +{setting('AGE_BOOST_MAX_PCT', 30)}%). Repeat boost: +{setting('REPEAT_BOOST_PCT_EACH', 5)}% per "
                    f"extra request on a theme (max +{setting('REPEAT_BOOST_MAX_PCT', 20)}%). Urgency never exceeds 100%.")
+        st.divider()
+        rag.render_admin_panel()                               # Aira's knowledge index: rebuild / download
 
     # ---------- header + counters ----------
     cn = db.counts(MAX_ATTEMPTS)
@@ -94,8 +98,9 @@ def admin_page():
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("Feedback items", cn["total"])
         m2.metric("Analyzed", cn["done"])
-        m3.metric("Pending", cn["pending"])
-        m4.metric("Parked (errors)", cn["failed"])
+        tc = db.task_counts()
+        m3.metric("Approved tasks", tc["approved"], help="Approved by clients and waiting for an admin to complete them.")
+        m4.metric("Completed tasks", tc["completed"], help="Approved tasks an admin has completed.")
 
     flash = st.session_state.pop("flash", None)
     if flash:
@@ -214,6 +219,10 @@ def admin_page():
 
     st.divider()
 
+    # ---------- company policy document (policy score + Aira policy answers) ----------
+    policy.render_admin_panel()
+    st.divider()
+
     # ---------- manage entries ----------
     st.subheader("Feedback entries")
     with db.conn() as c:
@@ -242,19 +251,19 @@ def admin_page():
     st.divider()
 
 
-    # ---------- results (saved in the database; same display the User Access page shows) ----------
+    # ---------- results (saved in the database; same display the Feedback Tracker page shows) ----------
     try:
         data = results.load_results()
     except Exception as e:
         st.error(f"Could not read the saved results: {e}")
     else:
-        results.render_completed_review(data)              # tasks users marked Completed: Verify / Repost
+        results.render_approved_review(data)               # tasks clients approved: Complete button
         st.divider()
         results.render_all_requests(data)                  # Admin Access: requests table only (no ranked themes)
 
 
-def user_page():
-    """User Access: read-only view of results already saved by Admin Access. Never starts an analysis."""
+def client_page():
+    """Feedback Tracker: results already saved by Admin Access, where a client approves changes. Never starts an analysis."""
     st.subheader("Results")
     results.show_flash()
     try:
@@ -262,28 +271,28 @@ def user_page():
             data = results.load_results()
     except Exception as e:                                   # error state
         st.error(f"Could not load results: {e}")
-        st.button("Try again", key="user_retry")             # any click reruns the page
+        st.button("Try again", key="client_retry")             # any click reruns the page
         return
     if data["empty"]:                                        # empty state
         st.info("No results generated. Please upload data.")
-        ui.link_button("Go to Admin Access", "admin", "user_to_admin", type="primary")
+        ui.link_button("Go to Admin Access", "admin", "client_to_admin", type="primary")
         return
     pend = data["requests"][data["requests"]["status"] == "Pending"]       # loaded state
     with st.container(key="kpi_band"):
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("Active themes", pend["theme_id"].nunique())
         m2.metric("Active requests", len(pend))
-        m3.metric("Completed (awaiting verification)", int((data["requests"]["status"] == "Completed").sum()))
-        m4.metric("Verified", int((data["requests"]["status"] == "Verified").sum()))
-    results.render_ranked_themes(data)                  # User Access: ranked themes only
+        m3.metric("Approved (awaiting completion)", int((data["requests"]["status"] == "Approved").sum()))
+        m4.metric("Completed", int((data["requests"]["status"] == "Completed").sum()))
+    results.render_ranked_themes(data)                  # Feedback Tracker: ranked themes only
 
 
-# ---------- router: Home / User Access / Admin Access ----------
+# ---------- router: Home / Feedback Tracker / Admin Access ----------
 view = ui.current_view()
 ui.render_chrome(view)
 if view != "home":
     with ui.page(view):
-        user_page() if view == "user" else admin_page()
+        client_page() if view == "client" else admin_page()
 
-# ---------- Aira chat bubble (bottom-right, on every view) ----------
-aira.render()
+# ---------- Aira chat bubble (bottom-right, on every view); the admin view of Aira needs Admin Access unlocked ----------
+aira.render("admin" if view == "admin" and ui.admin_unlocked() else "client")

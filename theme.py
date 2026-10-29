@@ -1,7 +1,7 @@
 """Single source of truth for the app's look (EY-inspired, light enterprise theme).
 
 Every colour used by the pages, charts, badges and the Aira widget comes from here, so a change in this file
-restyles the landing page, User Access and Admin Access together. Streamlit's own widgets pick up the same
+restyles the landing page, Feedback Tracker and Admin Access together. Streamlit's own widgets pick up the same
 palette from .streamlit/config.toml (restart Streamlit after changing that file).
 """
 
@@ -31,9 +31,10 @@ CATEGORY_COLORS = {
     "Other": "#9CA3AF",         # not in the brief: neutral gray
 }
 EXTRA_COLORS = ["#6B7280", "#4B5563", "#D1D5DB"]     # only for categories that are not listed above
-RAISED, RESOLVED = "#2563EB", "#10B981"              # Requests Raised / Requests Resolved
-STATUS_COLORS = {"Pending": "#F59E0B", "Completed": "#2563EB", "Verified": "#10B981"}
-STATUS_DOT = {"Pending": "🟠", "Completed": "🔵", "Verified": "🟢"}   # same colours, usable inside tables
+RAISED, APPROVED, RESOLVED = "#2563EB", "#CA8A04", "#10B981"   # raised (blue) -> approved by a client (gold) -> resolved (green)
+STATUS_COLORS = {"Pending": "#6B7280", "Approved": APPROVED, "Completed": RESOLVED}
+STATUS_DOT = {"Pending": "⚪", "Approved": "🟡", "Completed": "🟢"}      # same colours, usable inside tables
+ORANGE = "#F59E0B"                                                   # "waiting" counters on the admin KPI band
 
 
 def _contrast(hex_a, hex_b):
@@ -51,7 +52,7 @@ def on_color(bg):
 
 
 def pill(status):
-    """Small colored status badge (HTML) for Pending / Completed / Verified."""
+    """Small colored status badge (HTML) for Pending / Approved / Completed."""
     bg = STATUS_COLORS.get(status, MUTED)
     return f'<span class="voc-pill" style="background:{bg};color:{on_color(bg)}">{status}</span>'
 
@@ -89,9 +90,9 @@ hr{{border-color:{BORDER} !important;}}
 .st-key-kpi_band [data-testid="stColumn"]:nth-child(2) [data-testid="stMetric"],
 .st-key-kpi_band_admin [data-testid="stColumn"]:nth-child(2) [data-testid="stMetric"]{{border-top:3px solid {PRIMARY};}}
 .st-key-kpi_band [data-testid="stColumn"]:nth-child(3) [data-testid="stMetric"],
-.st-key-kpi_band_admin [data-testid="stColumn"]:nth-child(3) [data-testid="stMetric"]{{border-top:3px solid {STATUS_COLORS["Pending"]};}}
-.st-key-kpi_band [data-testid="stColumn"]:nth-child(4) [data-testid="stMetric"]{{border-top:3px solid {STATUS_COLORS["Verified"]};}}
-.st-key-kpi_band_admin [data-testid="stColumn"]:nth-child(4) [data-testid="stMetric"]{{border-top:3px solid #EF4444;}}
+.st-key-kpi_band_admin [data-testid="stColumn"]:nth-child(3) [data-testid="stMetric"]{{border-top:3px solid {STATUS_COLORS["Approved"]};}}
+.st-key-kpi_band [data-testid="stColumn"]:nth-child(4) [data-testid="stMetric"],
+.st-key-kpi_band_admin [data-testid="stColumn"]:nth-child(4) [data-testid="stMetric"]{{border-top:3px solid {STATUS_COLORS["Completed"]};}}
 
 /* ---------- panels ---------- */
 .st-key-chart_card{{background:{CARD};border:1px solid {BORDER};border-radius:14px;padding:1.1rem 1.3rem;margin-bottom:1rem;}}

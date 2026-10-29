@@ -1,8 +1,9 @@
 """Landing-page analytics: two bar charts built from the real database (no mock data).
 
-1. Requests Raised vs Requests Resolved per month / quarter of a financial year (April-March).
+1. Requests Raised, Approved and Resolved per month / quarter of a financial year (April-March).
      Raised   = requests by their creation timestamp (the feedback entry's created_at, the same date used everywhere).
-     Resolved = requests whose status is 'Verified', placed by their verification timestamp (verified_at).
+     Approved = requests a client approved (status Approved or Completed), placed by their approval timestamp (approved_at).
+     Resolved = requests whose status is 'Completed', placed by their completion timestamp (completed_at).
 2. Requests by category (existing `category` field), same filters, one series per category (by creation timestamp).
 Periods without requests show 0. Both charts share one financial-year dropdown and one Monthly/Quarterly toggle.
 Charts are drawn with Altair (the engine behind Streamlit's own charts).
@@ -18,8 +19,8 @@ import theme
 
 MONTHS = ["Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"]
 QUARTERS = ["Q1 (Apr–Jun)", "Q2 (Jul–Sep)", "Q3 (Oct–Dec)", "Q4 (Jan–Mar)"]
-RAISED, RESOLVED = "Requests Raised", "Requests Resolved"
-SERIES_COLORS = [theme.RAISED, theme.RESOLVED]            # blue / green
+RAISED, APPROVED, RESOLVED = "Requests Raised", "Requests Approved", "Requests Resolved"
+SERIES_COLORS = [theme.RAISED, theme.APPROVED, theme.RESOLVED]   # blue / gold / green
 CATEGORY_ORDER = ["UI/UX", "Performance", "Integration", "Reporting", "Mobile", "Security", "Other"]
 CATEGORY_COLORS = theme.CATEGORY_COLORS                    # fixed colour per category, same everywhere in the app
 EXTRA_COLORS = theme.EXTRA_COLORS                          # only for categories that are not listed above
@@ -62,23 +63,25 @@ def _per_period(ts, fy, freq):
 
 # ---------------------------------------------------------------- data
 def load_requests():
-    """One row per request: category, status, creation time (from its feedback) and verification time."""
+    """One row per request: category, status, creation time (from its feedback), approval and completion times."""
     with db.conn() as c:
-        df = pd.read_sql("""SELECT r.id, r.category, r.status, r.verified_at, f.created_at
+        df = pd.read_sql("""SELECT r.id, r.category, r.status, r.approved_at, r.completed_at, f.created_at
                             FROM requests r JOIN feedback f ON f.id=r.feedback_id""", c)
     df["created"] = pd.to_datetime(df["created_at"], format="ISO8601", errors="coerce")
-    df["verified"] = pd.to_datetime(df["verified_at"], format="ISO8601", errors="coerce")
-    df.loc[df["status"] != "Verified", "verified"] = pd.NaT          # resolved = Verified only
+    df["approved"] = pd.to_datetime(df["approved_at"], format="ISO8601", errors="coerce")
+    df["resolved"] = pd.to_datetime(df["completed_at"], format="ISO8601", errors="coerce")
+    df.loc[~df["status"].isin(["Approved", "Completed"]), "approved"] = pd.NaT   # approved = Approved or Completed
+    df.loc[df["status"] != "Completed", "resolved"] = pd.NaT                     # resolved = Completed only
     df["category"] = df["category"].fillna("").replace("", "Other")
     return df
 
 
 def overview_rows(df, fy, freq):
     labels = period_labels(freq)
-    raised = _per_period(df["created"], fy, freq)
-    resolved = _per_period(df["verified"], fy, freq)
-    return ([{"period": p, "series": RAISED, "count": n} for p, n in zip(labels, raised)] +
-            [{"period": p, "series": RESOLVED, "count": n} for p, n in zip(labels, resolved)])
+    rows = []
+    for name, col in ((RAISED, "created"), (APPROVED, "approved"), (RESOLVED, "resolved")):
+        rows += [{"period": p, "series": name, "count": n} for p, n in zip(labels, _per_period(df[col], fy, freq))]
+    return rows
 
 
 def categories_in(df):
@@ -116,7 +119,7 @@ def _grouped_bars(rows, series, colors, freq, labels_on):
                  alt.Tooltip("count:Q", title="Requests")])
     chart = base.mark_bar(cornerRadiusTopLeft=2, cornerRadiusTopRight=2)
     if labels_on:                                                     # numbers above bars, including 0
-        chart = chart + base.mark_text(dy=-7, fontSize=11, color=theme.TEXT).encode(text="count:Q")
+        chart = chart + base.mark_text(dy=-7, fontSize=10, color=theme.TEXT).encode(text="count:Q")
     return (chart.properties(height=320)
             .configure(background=theme.CARD, font="Inter, 'Segoe UI', Helvetica, Arial, sans-serif")
             .configure_view(stroke=None)
@@ -189,10 +192,10 @@ def render():
         except Exception as e:
             st.error(f"Could not load chart data: {e}")
             return
-        st.markdown(f'<div class="voc-chart-h">Requests raised vs resolved · {fy_label(fy)} · {freq.lower()}</div>',
+        st.markdown(f'<div class="voc-chart-h">Requests raised, approved and resolved · {fy_label(fy)} · {freq.lower()}</div>',
                     unsafe_allow_html=True)
         rows = overview_rows(df, fy, freq)
-        _show(_grouped_bars(rows, [RAISED, RESOLVED], SERIES_COLORS, freq, True))
+        _show(_grouped_bars(rows, [RAISED, APPROVED, RESOLVED], SERIES_COLORS, freq, True))
 
         st.markdown(f'<div class="voc-chart-h">Requests by category · {fy_label(fy)} · {freq.lower()}</div>',
                     unsafe_allow_html=True)
@@ -202,7 +205,7 @@ def render():
         else:
             st.caption("No categorised requests yet.")
         if not any(r["count"] for r in rows):
-            st.caption(f"No requests were raised or resolved in {fy_label(fy)}, so every value is 0.")
-        st.markdown('<div class="voc-note">Raised = request creation date. Resolved = status Verified, counted in the '
-                    'period of its verification date. Categories are counted by creation date.</div>',
-                    unsafe_allow_html=True)
+            st.caption(f"No requests were raised, approved or resolved in {fy_label(fy)}, so every value is 0.")
+        st.markdown('<div class="voc-note">Raised = request creation date. Approved = approved by a client, counted at its '
+                    'approval date. Resolved = status Completed, counted at its completion date. Categories are counted by '
+                    'creation date.</div>', unsafe_allow_html=True)

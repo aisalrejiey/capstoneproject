@@ -9,3 +9,4 @@ scikit-learn
 python-dotenv
 truststore
 altair>=5
+pypdf

@@ -1,6 +1,6 @@
-"""Navigation chrome for the three views: Home, User Access, Admin Access.
+"""Navigation chrome for the three views: Home, Feedback Tracker, Admin Access.
 
-- Router: st.session_state["view"] mirrored to the URL (?view=user / ?view=admin), so a browser refresh or a
+- Router: st.session_state["view"] mirrored to the URL (?view=client / ?view=admin), so a browser refresh or a
   bookmarked link stays on the same page. Home has no query string.
 - Home: light enterprise theme (colours from theme.py), centered title with a yellow accent + two muted text options
   (hover = grow slightly + blue).
@@ -19,7 +19,7 @@ import theme
 
 TITLE = "VOC Enhancement Tracker"
 SUBTITLE = "Customer feedback → enhancement requests → ranked themes"
-VIEWS = {"user": "User Access", "admin": "Admin Access"}
+VIEWS = {"client": "Feedback Tracker", "admin": "Admin Access"}
 GRAY, BLACK, BLUE = theme.MUTED, theme.TEXT, theme.PRIMARY
 
 CSS = """
@@ -52,7 +52,7 @@ CSS = """
 .st-key-title_home{animation:voc-title-slide .5s cubic-bezier(.2,.7,.2,1) both;transform-origin:left center;}
 .st-key-title_home button{font-size:1.5rem !important;font-weight:700 !important;letter-spacing:-.02em;
   color:__BLACK__ !important;padding-left:0 !important;}
-.st-key-nav_user,.st-key-nav_admin{animation:voc-nav-in .45s ease both;}
+.st-key-nav_client,.st-key-nav_admin{animation:voc-nav-in .45s ease both;}
 .voc-divider{border:0;border-top:1px solid __BORDER__;margin:.4rem 0 1.4rem;animation:voc-fade .5s ease both;}
 
 /* ---- page content ---- */
@@ -71,7 +71,7 @@ CSS = """
   .st-key-voc_home [data-testid="stHorizontalBlock"]{gap:1rem}}
 
 @media (prefers-reduced-motion:reduce){
-  .voc-hero,.voc-divider,.st-key-title_home,.st-key-nav_user,.st-key-nav_admin,[class*="st-key-voc_page_"]{animation:none !important;}
+  .voc-hero,.voc-divider,.st-key-title_home,.st-key-nav_client,.st-key-nav_admin,[class*="st-key-voc_page_"]{animation:none !important;}
   .st-key-voc_home button,.st-key-voc_top button{transition:none !important;transform:none !important;}
 }
 </style>
@@ -83,6 +83,7 @@ def current_view():
     """Home / user / admin. Taken from session state, falling back to the URL (refresh, bookmarks)."""
     if "view" not in st.session_state:
         v = st.query_params.get("view", "")
+        v = "client" if v == "user" else v                       # old bookmarks (?view=user) still work
         st.session_state["view"] = v if v in VIEWS else "home"
     return st.session_state["view"]
 
@@ -111,7 +112,7 @@ def render_chrome(view):
                         f'<p class="voc-sub">{SUBTITLE}</p></div>', unsafe_allow_html=True)
             cols = st.columns(2)
             with cols[0]:
-                link_button("User Access", "user", "nav_user")
+                link_button("Feedback Tracker", "client", "nav_client")
             with cols[1]:
                 link_button("Admin Access", "admin", "nav_admin")
         analytics.render()                      # request charts: a short scroll below the title
@@ -125,7 +126,7 @@ def render_chrome(view):
         with c_title:
             link_button(TITLE, "home", "title_home", help="Back to Home")
         with c_user:
-            link_button("User Access", "user", "nav_user")
+            link_button("Feedback Tracker", "client", "nav_client")
         with c_admin:
             link_button("Admin Access", "admin", "nav_admin")
     st.markdown('<hr class="voc-divider">', unsafe_allow_html=True)
@@ -137,6 +138,11 @@ def page(view):
 
 
 # ---------------------------------------------------------------- optional admin gate
+def admin_unlocked():
+    """True when Admin Access may be used right now: no ADMIN_PASSWORD set, or the password was entered this session."""
+    return not os.getenv("ADMIN_PASSWORD", "") or bool(st.session_state.get("admin_ok"))
+
+
 def admin_allowed():
     """True if Admin Access may be shown. With ADMIN_PASSWORD set in .env a password is required
     (checked on the server; the page content is not rendered until it matches). Without it: open, as before."""

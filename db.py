@@ -57,16 +57,53 @@ def init():
             c.execute("ALTER TABLE feedback ADD COLUMN raised_by TEXT DEFAULT ''")
         if "reason" not in [r[1] for r in c.execute("PRAGMA table_info(themes)")]:
             c.execute("ALTER TABLE themes ADD COLUMN reason TEXT")
-        # task workflow (Pending -> Completed -> Verified): lives on requests, because themes are rebuilt on every analysis
+        # task workflow (Pending -> Approved by the client -> Completed by an admin): lives on requests, because themes
+        # are rebuilt on every analysis
         rcols = [r[1] for r in c.execute("PRAGMA table_info(requests)")]
         if "status" not in rcols:
             c.execute("ALTER TABLE requests ADD COLUMN status TEXT NOT NULL DEFAULT 'Pending'")
-        if "completed_at" not in rcols:                 # "Task Submitted At": when the user clicked Completed
-            c.execute("ALTER TABLE requests ADD COLUMN completed_at TEXT")
-        if "verified_at" not in rcols:                  # "Task Verified At": when an admin clicked Verify
-            c.execute("ALTER TABLE requests ADD COLUMN verified_at TEXT")
-        c.execute("UPDATE requests SET status='Pending' WHERE status IS NULL OR status NOT IN ('Pending','Completed','Verified')")
+        if "approved_at" not in rcols:                  # "Task Approved At": when the client clicked Approved
+            c.execute("ALTER TABLE requests ADD COLUMN approved_at TEXT")
+            if "completed_at" in rcols and "verified_at" in rcols:
+                # one-time conversion of a database from the OLD workflow (Pending -> Completed -> Verified):
+                # the old "Completed" step is the client's approval, the old "Verified" step is the real completion
+                c.execute("UPDATE requests SET approved_at=completed_at, completed_at=verified_at")
+                c.execute("""UPDATE requests SET status = CASE status WHEN 'Completed' THEN 'Approved'
+                             WHEN 'Verified' THEN 'Completed' ELSE status END""")
+                c.execute("UPDATE requests SET approved_at=NULL WHERE status='Pending'")   # reposted tasks were never approved
+                try:
+                    c.execute("ALTER TABLE requests DROP COLUMN verified_at")
+                except sqlite3.OperationalError:        # very old SQLite: the unused column simply stays
+                    pass
+            elif "completed_at" not in rcols:
+                c.execute("ALTER TABLE requests ADD COLUMN completed_at TEXT")   # "Task Completed At": admin clicked Complete
+        c.execute("UPDATE requests SET status='Pending' WHERE status IS NULL OR status NOT IN ('Pending','Approved','Completed')")
+        # priorities (0-100) kept separately: model_priority = what the model suggested when the client first saw/saved it
+        # (never overwritten afterwards), client_priority = what the client chose in the Feedback Tracker
+        rcols = [r[1] for r in c.execute("PRAGMA table_info(requests)")]
+        for col in ("model_priority", "client_priority"):
+            if col not in rcols:
+                c.execute(f"ALTER TABLE requests ADD COLUMN {col} REAL")
         c.execute("CREATE INDEX IF NOT EXISTS idx_requests_status ON requests(status)")
+        # company policy document -> policy fit score per theme (see policy.py)
+        tcols = [r[1] for r in c.execute("PRAGMA table_info(themes)")]
+        for col, typ in (("base_score", "REAL"), ("policy_score", "REAL"), ("policy_level", "TEXT"), ("policy_reason", "TEXT")):
+            if col not in tcols:
+                c.execute(f"ALTER TABLE themes ADD COLUMN {col} {typ}")
+        c.execute("UPDATE themes SET base_score=score WHERE base_score IS NULL")   # score before any policy blend
+        c.execute("""CREATE TABLE IF NOT EXISTS policy_docs(
+                       id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, doc_hash TEXT, uploaded_at TEXT,
+                       n_sections INTEGER, n_chars INTEGER)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS policy_sections(
+                       id INTEGER PRIMARY KEY AUTOINCREMENT, doc_id INTEGER, idx INTEGER, heading TEXT, parent TEXT,
+                       text TEXT)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS policy_scores(
+                       sig TEXT PRIMARY KEY, doc_hash TEXT, applies INTEGER, score REAL, level TEXT, section TEXT,
+                       reason TEXT, scored_at TEXT)""")
+        # RAG knowledge index: one searchable chunk per theme / request / unanalyzed feedback (rebuilt by rag.py)
+        c.execute("""CREATE TABLE IF NOT EXISTS rag_chunks(
+                       chunk_id TEXT PRIMARY KEY, kind TEXT NOT NULL, ref_id INTEGER, title TEXT, text TEXT NOT NULL,
+                       text_hash TEXT NOT NULL, embedding BLOB, emb_model TEXT, updated_at TEXT)""")
 
 
 # ---------- feedback ----------
@@ -286,15 +323,34 @@ def replace_themes(themes, assignments):
         c.execute("DELETE FROM sqlite_sequence WHERE name='themes'")   # ids restart at 1
         key_to_id = {}
         for t in themes:
-            cur = c.execute("INSERT INTO themes(name,description,score,n_requests,reason) VALUES(?,?,?,?,?)",
-                            (t["name"], t["description"], t["score"], t["n_requests"], t.get("reason", "")))
+            cur = c.execute("INSERT INTO themes(name,description,score,base_score,n_requests,reason) VALUES(?,?,?,?,?,?)",
+                            (t["name"], t["description"], t["score"], t["score"], t["n_requests"], t.get("reason", "")))
             key_to_id[t["key"]] = cur.lastrowid
         for rid, key in assignments.items():
             c.execute("UPDATE requests SET theme_id=? WHERE id=?", (key_to_id[key], rid))
 
 
-# ---------- task workflow: Pending -> Completed -> Verified ----------
-STATUSES = ("Pending", "Completed", "Verified")
+def reorder_themes():
+    """Renumbers themes by score (theme #1 = highest priority) and moves the requests with them.
+    Needed after the policy blend changes the order. Returns True if anything moved."""
+    with conn() as c:
+        rows = [dict(r) for r in c.execute("SELECT * FROM themes ORDER BY score DESC, id")]
+        mapping = {r["id"]: i for i, r in enumerate(rows, 1)}
+        if not rows or all(o == n for o, n in mapping.items()):
+            return False
+        cols = [k for k in rows[0] if k != "id"]
+        c.execute("UPDATE requests SET theme_id=theme_id+1000000 WHERE theme_id IS NOT NULL")
+        c.execute("DELETE FROM themes")
+        c.execute("DELETE FROM sqlite_sequence WHERE name='themes'")
+        for r in rows:
+            c.execute(f"INSERT INTO themes(id,{','.join(cols)}) VALUES(?{',?' * len(cols)})",
+                      [mapping[r["id"]]] + [r[k] for k in cols])
+            c.execute("UPDATE requests SET theme_id=? WHERE theme_id=?", (mapping[r["id"]], r["id"] + 1000000))
+    return True
+
+
+# ---------- task workflow: Pending -> Approved (client) -> Completed (admin) ----------
+STATUSES = ("Pending", "Approved", "Completed")
 
 
 def _now():
@@ -315,26 +371,67 @@ def _move(ids, to_status, from_status, **cols):
                          [to_status, *cols.values(), from_status, *ids]).rowcount
 
 
+def task_counts():
+    """Number of TASKS (a task = the requests of one theme approved / completed together) that are Approved (waiting for an
+    admin to complete them) and that are Completed. Matches the task cards shown in Admin Access."""
+    with conn() as c:
+        a = c.execute("SELECT COUNT(*) FROM (SELECT DISTINCT theme_id, approved_at FROM requests WHERE status='Approved')").fetchone()[0]
+        d = c.execute("SELECT COUNT(*) FROM (SELECT DISTINCT theme_id, completed_at FROM requests WHERE status='Completed')").fetchone()[0]
+    return {"approved": a, "completed": d}
+
+
+def priority_int(score):
+    """Priority shown to clients: the 0-100 priority score rounded half-up to a whole number (used everywhere)."""
+    return int(float(score) + 0.5)
+
+
+def saved_client_priority(ids):
+    """The client's saved priority for these (pending) requests when they all share one value, else None."""
+    ids = sorted({int(i) for i in ids})
+    if not ids:
+        return None
+    with conn() as c:
+        rows = c.execute(f"SELECT client_priority FROM requests WHERE status='Pending' AND id IN ({','.join('?' * len(ids))})",
+                         ids).fetchall()
+    vals = {r[0] for r in rows}
+    return int(vals.pop()) if len(vals) == 1 and None not in vals else None
+
+
+def save_client_priority(ids, model_priority, client_priority):
+    """Client clicked Save Priority: stores their value on the still-Pending requests. model_priority is only filled in
+    when empty (COALESCE), so the original model value is never overwritten. Returns how many rows changed."""
+    ids = sorted({int(i) for i in ids})
+    if not ids:
+        return 0
+    with conn() as c:
+        return c.execute(f"""UPDATE requests SET client_priority=?, model_priority=COALESCE(model_priority, ?)
+                             WHERE status='Pending' AND id IN ({','.join('?' * len(ids))})""",
+                         [float(client_priority), float(model_priority), *ids]).rowcount
+
+
+def approve_requests(ids, model_priority=None, client_priority=None):
+    """Client clicked Approved: Pending -> Approved, records the approval time (completed_at stays empty). Also stores the
+    priorities: client_priority = the value approved (saved, or the model's when left unchanged); model_priority only if
+    still empty, so it is never overwritten."""
+    ids = sorted({int(i) for i in ids})
+    if not ids:
+        return 0
+    with conn() as c:
+        return c.execute(f"""UPDATE requests SET status='Approved', approved_at=?, completed_at=NULL,
+                             model_priority=COALESCE(model_priority, ?), client_priority=COALESCE(?, client_priority)
+                             WHERE status='Pending' AND id IN ({','.join('?' * len(ids))})""",
+                         [_now(), model_priority, client_priority, *ids]).rowcount
+
+
 def complete_requests(ids):
-    """User clicked Completed: Pending -> Completed, records the submission time (verified_at stays empty)."""
-    return _move(ids, "Completed", "Pending", completed_at=_now(), verified_at=None)
-
-
-def verify_requests(ids):
-    """Admin clicked Verify: Completed -> Verified, records the verification time."""
-    return _move(ids, "Verified", "Completed", verified_at=_now())
-
-
-def repost_requests(ids):
-    """Admin clicked Repost: Completed -> Pending. completed_at is NOT touched, verified_at stays empty,
-    and the feedback's own created_at is never modified."""
-    return _move(ids, "Pending", "Completed")
+    """Admin clicked Complete: Approved -> Completed, records the completion time. approved_at is never touched."""
+    return _move(ids, "Completed", "Approved", completed_at=_now())
 
 
 def reset_data():
     """Clears feedback/requests/themes. The API call log is KEPT so the daily cap can't be bypassed."""
     with conn() as c:
-        c.executescript("""DELETE FROM requests; DELETE FROM themes; DELETE FROM theme_cache; DELETE FROM feedback;
+        c.executescript("""DELETE FROM requests; DELETE FROM themes; DELETE FROM theme_cache; DELETE FROM feedback; DELETE FROM rag_chunks;
                            DELETE FROM sqlite_sequence WHERE name IN ('requests','themes','feedback');""")
 
 
@@ -361,4 +458,5 @@ def update_theme_stats(stats):
         else:
             c.execute("DELETE FROM themes")
         for tid, (n, score, reason) in stats.items():
-            c.execute("UPDATE themes SET n_requests=?, score=?, reason=? WHERE id=?", (n, score, reason, tid))
+            c.execute("UPDATE themes SET n_requests=?, score=?, base_score=?, reason=? WHERE id=?",
+                      (n, score, score, reason, tid))

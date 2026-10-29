@@ -8,6 +8,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 
 import db
 import llm
+import policy
 import roles
 from llm import log, setting
 
@@ -171,9 +172,19 @@ def cluster_and_rank(distance_threshold=0.45):
         for r in g:
             assign[r["id"]] = key
     db.replace_themes(themes, assign)
+    _apply_policy(allow_api=True)                      # blend in the company-policy score (if a document is uploaded)
     for t in sorted(themes, key=lambda t: -t["score"]):
         log.info("THEME score=%s n=%d  %s", t["score"], t["n_requests"], t["name"])
     return len(themes)
+
+
+def _apply_policy(allow_api):
+    """Never lets a policy problem break the analysis: themes simply keep their base score."""
+    try:
+        if policy.has_document():
+            policy.apply_to_themes(allow_api=allow_api)
+    except Exception:
+        log.error("Applying the policy score failed; themes keep their base score", exc_info=True)
 
 
 def refresh_theme_stats():
@@ -192,3 +203,4 @@ def refresh_theme_stats():
         score = priority(g, mx)
         stats[tid] = (len(g), score, explain(g, score))
     db.update_theme_stats(stats)
+    _apply_policy(allow_api=False)                     # cached policy scores only: deleting an entry costs no API call
