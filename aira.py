@@ -40,7 +40,7 @@ NO_DATA = "NO_DATA"          # the model answers exactly this when the data cann
 MAX_THEMES, MAX_REQS_PER_THEME, MAX_UNANALYZED = 10, 3, 3   # overview only; details come from retrieval (rag.py)
 
 GREETING = {
-    "admin": ("Hi, I'm **Aira**. I can walk you through the tasks on your list, tell you what to finish first, "
+    "admin": ("Hi, I'm **Aira**. I can walk you through the items on your list, tell you what to finish first, "
               "and explain **why** it matters. If a policy document is uploaded I can answer company-policy questions too. "
               "Tap a shortcut below or ask me anything about your feedback data."),
     "client": ("Hi, I'm **Aira**. I can help you review the changes waiting for your approval, suggest which to approve "
@@ -57,9 +57,9 @@ EMPTY_MSG = {
 NO_DATA_MSG = {
     "admin": ("I couldn't find anything in your feedback data that answers that. "
               "Please try another command, for example:\n"
-              "- *Which task should I do first and why?*\n"
-              "- *Give me an overview of my pending tasks*\n"
-              "- *Which approved tasks are waiting for completion?*\n"
+              "- *Which item should I do first and why?*\n"
+              "- *Give me an overview of my pending items*\n"
+              "- *Which approved items are waiting for completion?*\n"
               "- *What did client1 ask for?*\n"
               "- *What does our policy say about priority levels?* (needs an uploaded policy document)"),
     "client": ("I couldn't find that in the information I have. Could you try asking it another way? For example:\n"
@@ -81,11 +81,11 @@ def chips(audience, policy_loaded):
                ("❓ What happens next?", "What happens after I approve a change?")]
         last = ("📘 Our policy", "What does our policy say about how requests are prioritised?")
         return out + [last if policy_loaded else ("🔥 Most urgent", "Which changes are the most urgent, and why?")]
-    out = [("🎯 Do first?", "Which task should I complete first, and why is it important?"),
-           ("📋 Pending list", "Give me a quick ranked overview of my pending tasks."),
-           ("✅ Approved queue", "Which approved tasks are waiting for completion, and which should be completed first?")]
+    out = [("🎯 Do first?", "Which item should I complete first, and why is it important?"),
+           ("📋 Pending list", "Give me a quick ranked overview of my pending items."),
+           ("✅ Approved queue", "Which approved items are waiting for completion, and which should be completed first?")]
     last = ("📘 Policy", "Summarise the key priority rules in our policy document.")
-    return out + [last if policy_loaded else ("🔥 Biggest risks", "Which tasks are blocking customers or have negative sentiment, and why?")]
+    return out + [last if policy_loaded else ("🔥 Biggest risks", "Which items are blocking customers or have negative sentiment, and why?")]
 
 
 BASE_PROMPT = """You are Aira, the assistant inside a VOC (voice of customer) Enhancement Tracker.
@@ -125,7 +125,7 @@ HOW TO ANSWER
 
 ADMIN_PROMPT = """
 AUDIENCE: ADMIN (internal). Use the full detail: who raised a request, how many asked, urgency %, age in days, negative tone,
-blockers, "why" and base_score. "counts" and "unanalyzed_feedback" show approved tasks waiting for completion and feedback not
+blockers, "why" and base_score. In this admin interface call them "items", not "tasks". "counts" and "unanalyzed_feedback" show approved items waiting for completion and feedback not
 yet analysed (the admin must click Run analysis to turn it into tasks). Roles weigh client > user > tester > developer."""
 
 CLIENT_PROMPT = """
@@ -136,6 +136,7 @@ AUDIENCE: CLIENT. You are talking to a client who reviews proposed changes and a
   and the team completes it. Explain this simply when asked.
 - When asked what to approve first, rank by priority score and explain what a client cares about: impact on customers,
   urgency, how many people asked, how long it has waited and, if available, the company policy rule behind it.
+- Never use priority codes such as P0-P4: say critical, high, medium or low priority instead.
 - Never mention databases, JSON, APIs, tokens, scores' internal formulas, "Run analysis" or other admin actions. You are not
   told who else raised a change and must not guess; say "customers" instead. Never quote anyone's original feedback.
 - If you are unsure or the data does not cover it, say so kindly (reply NO_DATA)."""
@@ -190,8 +191,9 @@ def build_context(audience="admin"):
             if not client:
                 theme_ctx.update({"base_score": t["base_score"], "why": t["reason"] or ""})
             if t["policy_score"] is not None:
-                theme_ctx["policy_fit"] = {"score": t["policy_score"], "level": t["policy_level"] or "",
-                                           "why": t["policy_reason"] or ""}
+                lvl = t["policy_level"] or ""
+                theme_ctx["policy_fit"] = {"score": t["policy_score"], "level": policy.plain_reason(lvl) if client else lvl,
+                                           "why": policy.plain_reason(t["policy_reason"])}
             ctx["themes"].append(theme_ctx)
         doc = c.execute("SELECT name FROM policy_docs ORDER BY id DESC LIMIT 1").fetchone()
         ctx["policy"] = {"loaded": bool(doc), "document": doc["name"] if doc else ""}
@@ -406,7 +408,7 @@ def render(audience="admin"):
                 with st.form("aira_form", clear_on_submit=True, border=False):
                     c_in, c_go = st.columns([5, 2])
                     c_in.text_input("Ask Aira", key="aira_input", label_visibility="collapsed",
-                                    placeholder="Ask about the changes or our policy…" if client else "Ask about your tasks…")
+                                    placeholder="Ask about the changes or our policy…" if client else "Ask about your items…")
                     c_go.form_submit_button("Send", on_click=_submit, width="stretch")
                 st.button("Clear chat", key="aira_clear", on_click=_clear, type="tertiary")
                 st.caption("Aira answers from the information shared with you" if client

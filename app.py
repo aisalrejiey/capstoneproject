@@ -99,8 +99,8 @@ def admin_page():
         m1.metric("Feedback items", cn["total"])
         m2.metric("Analyzed", cn["done"])
         tc = db.task_counts()
-        m3.metric("Approved tasks", tc["approved"], help="Approved by clients and waiting for an admin to complete them.")
-        m4.metric("Completed tasks", tc["completed"], help="Approved tasks an admin has completed.")
+        m3.metric("Approved Items", tc["approved"], help="Approved by clients and waiting for an admin to complete them.")
+        m4.metric("Completed Items", tc["completed"], help="Approved items an admin has completed.")
 
     flash = st.session_state.pop("flash", None)
     if flash:
@@ -257,7 +257,7 @@ def admin_page():
     except Exception as e:
         st.error(f"Could not read the saved results: {e}")
     else:
-        results.render_approved_review(data)               # tasks clients approved: Complete button
+        results.render_approved_review(data)               # items clients approved: Complete button
         st.divider()
         results.render_all_requests(data)                  # Admin Access: requests table only (no ranked themes)
 

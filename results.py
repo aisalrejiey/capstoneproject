@@ -5,6 +5,8 @@ so results survive page refreshes and navigation. Nothing here calls the AI.
 Task workflow (all saved in the database, on the requests):  Pending -> Approved (a client approves the change)
 -> Completed (an admin completes it). The client's list shows only Pending tasks.
 """
+from datetime import date
+
 import pandas as pd
 import streamlit as st
 
@@ -61,7 +63,7 @@ def _act(fn, ids, done, label):
     if n:
         _flash("success", done)
     else:                                                    # already changed (double click / another session)
-        _flash("warning", "That task was already updated by someone else, so nothing changed. The list has been refreshed.")
+        _flash("warning", "That item was already updated by someone else, so nothing changed. The list has been refreshed.")
 
 
 def _save_priority(ids, key, model_p):
@@ -90,14 +92,14 @@ def _approve(ids, name, model_p, key):
             _flash("warning", "You changed the priority. Please click Save Priority before approving.")
             return
         _act(lambda i: db.approve_requests(i, model_p, baseline), ids,
-             f"“{name}” approved with priority {baseline}. An admin will complete it.", "approve this task")
+             f"“{name}” approved with priority {baseline}. An admin will complete it.", "approve this item")
     except Exception as e:
-        _flash("error", f"Could not approve this task: {e}")
+        _flash("error", f"Could not approve this item: {e}")
 
 
 def _complete(ids, name):
     """Admin Access: the approved change has been delivered."""
-    _act(db.complete_requests, ids, f"“{name}” marked as Completed.", "complete this task")
+    _act(db.complete_requests, ids, f"“{name}” marked as Completed.", "complete this item")
 
 
 def _prio_col(series):
@@ -112,21 +114,21 @@ def _stamp(series):
 
 # ---------------------------------------------------------------- admin: approved tasks waiting for completion
 def render_approved_review(data):
-    """Admin Access: tasks clients approved, each with a Complete button (in a pale-blue panel)."""
+    """Admin Access: items clients approved, each with a Complete button (in a pale-blue panel)."""
     with st.container(key="review_panel"):
         _approved_review_body(data)
 
 
 def _approved_review_body(data):
     reqs, themes = data["requests"], data["themes"]
-    st.subheader("Approved tasks waiting for completion")
+    st.subheader("Approved Items Waiting for Completion")
     todo = reqs[reqs["status"] == "Approved"]
     n_done = int((reqs["status"] == "Completed").sum())
     if todo.empty:
-        st.caption(f"No approved tasks are waiting. Completed so far: {n_done} request(s).")
+        st.caption(f"No approved items are waiting. Completed so far: {n_done} request(s).")
         return
     names = dict(zip(themes["id"], themes["name"])) if not themes.empty else {}
-    st.caption(f"{todo['approved_at'].nunique()} task(s) approved by clients, highest client priority first. "
+    st.caption(f"{todo['approved_at'].nunique()} item(s) approved by clients, highest client priority first. "
                f"Completed so far: {n_done} request(s).")
     tid = todo["theme_id"].map(lambda x: "none" if pd.isna(x) else str(int(x)))       # a request without a theme still shows
     todo = todo.assign(_k=tid + "|" + todo["approved_at"].fillna("").astype(str))
@@ -148,10 +150,54 @@ def _approved_review_body(data):
             show["Client Priority"] = _prio_col(d["client_priority"])       # what the client chose
             st.dataframe(show, width="stretch", hide_index=True)
             st.button("Complete", key=f"complete_{ids[0]}", type="primary", on_click=_complete, args=(ids, name),
-                      help="Mark this approved task as completed.")
+                      help="Mark this approved item as completed.")
 
 
 # ---------------------------------------------------------------- ranked themes + all requests
+def _policy_text(t, has_doc):
+    """One plain sentence about the policy fit of a theme (used on the page and in the Excel export)."""
+    if pd.notna(t.get("policy_score")):
+        return f"{t['policy_score']:.0f}/100. {policy.plain_reason(t['policy_reason'])}".strip()
+    return "No policy rule applies." if has_doc else "No policy document uploaded."
+
+
+XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+EXPORT_COLUMNS = ["Priority Number", "Priority Score", "Item Heading / Description", "Request Count", "Why",
+                  "Policy Fit & Explanation"]
+
+
+def export_report(rows, has_doc):
+    """Excel file (bytes) with the pending items exactly as listed on the Feedback Tracker, in the order shown.
+    rows = the sorted list built in render_ranked_themes. Needs openpyxl."""
+    from io import BytesIO
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font, PatternFill
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Pending Items"
+    ws.append(EXPORT_COLUMNS)
+    for c in ws[1]:
+        c.font = Font(name="Arial", bold=True, color="FFFFFF", size=10)
+        c.fill = PatternFill("solid", fgColor="2563EB")
+        c.alignment = Alignment(vertical="center", wrap_text=True)
+    for rank, (eff, _, t, grp, model_p, saved) in enumerate(rows, 1):
+        desc = t["description"] if isinstance(t["description"], str) and t["description"] else ""
+        why = t["reason"] if isinstance(t["reason"], str) else ""
+        ws.append([rank, eff, t["name"] + (f" - {desc}" if desc else ""), len(grp), why, _policy_text(t, has_doc)])
+    for row in ws.iter_rows(min_row=2):
+        for i, c in enumerate(row):
+            c.font = Font(name="Arial", size=10)
+            c.alignment = Alignment(vertical="top", wrap_text=i in (2, 4, 5),
+                                    horizontal="center" if i in (0, 1, 3) else None)
+    for col, w in zip("ABCDEF", (16, 15, 55, 14, 65, 65)):
+        ws.column_dimensions[col].width = w
+    ws.row_dimensions[1].height = 30
+    ws.freeze_panes = "A2"
+    buf = BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
 def _saved_of(series):
     """The client's saved priority when every pending request of the theme shares one value, else None."""
     vals = series.dropna()
@@ -193,9 +239,8 @@ def render_ranked_themes(data, empty_text="No themes yet. Add feedback and click
                     st.write(t["description"])
                 if pd.notna(t.get("policy_score")):                       # company-policy fit (see policy.py)
                     pct = round(policy.weight() * 100)
-                    lvl = f" · {t['policy_level']}" if t["policy_level"] else ""
-                    st.write(f"**Policy fit:** {t['policy_score']:.0f}/100{lvl}. {t['policy_reason']}")
-                    st.caption(f"Priority score = {100 - pct}% base score ({t['base_score']}) + {pct}% policy score.")
+                    st.write(f"**Policy fit:** {_policy_text(t, True)}")
+                    st.caption(f"Priority = {100 - pct}% standard score ({t['base_score']}) + {pct}% policy fit.")
                 ids = [int(i) for i in d.pop("id")]
                 who = sorted({u for u in d["raised_by"] if u})
                 if who:
@@ -208,6 +253,23 @@ def render_ranked_themes(data, empty_text="No themes yet. Add feedback and click
                                 "adj_urgency", "age_boost_pct", "repeat_boost_pct", "urgency_pct"]],
                              width="stretch", hide_index=True)
                 _priority_controls(ids, t["name"], model_p)
+        _export_button(rows)                                       # bottom of the page
+
+
+def _export_button(rows):
+    """'Export Report': one click downloads an Excel file of the pending items listed above (no page refresh)."""
+    st.divider()
+    try:
+        data = export_report(rows, policy.has_document())
+    except ImportError:
+        st.caption("Export Report needs the 'openpyxl' package: pip install openpyxl")
+        return
+    kw = dict(label="Export Report", data=data, file_name=f"feedback-tracker-report-{date.today():%Y-%m-%d}.xlsx",
+              mime=XLSX_MIME, key="export_report", help="Download the pending items listed above as an Excel file.")
+    try:
+        st.download_button(**kw, on_click="ignore")                # newer Streamlit: download without re-running the page
+    except TypeError:
+        st.download_button(**kw)
 
 
 @st.fragment
@@ -268,14 +330,14 @@ def _all_requests_body(data):
         allr["Model Priority"] = _prio_col(allr["model_priority"].where(allr["model_priority"].notna(), live))
         allr["Client Priority"] = _prio_col(allr["client_priority"])           # latest value saved in the Feedback Tracker
         allr["Policy score"] = allr["theme"].map(pol)                      # the theme's policy fit (empty = no policy rule)
-        allr["Task Approved At"] = _stamp(allr.pop("approved_at"))       # when the client clicked Approved
-        allr["Task Completed At"] = _stamp(allr.pop("completed_at"))     # when an admin clicked Complete (else empty)
+        allr["Item Approved At"] = _stamp(allr.pop("approved_at"))       # when the client clicked Approved
+        allr["Item Completed At"] = _stamp(allr.pop("completed_at"))     # when an admin clicked Complete (else empty)
         allr = add_urgency_cols(allr, n_theme)
         allr["status"] = allr["status"].map(lambda x: f"{theme.STATUS_DOT.get(x, '')} {x}".strip())
         st.dataframe(allr[["id", "summary", "raised_by", "added", "source", "category", "sentiment", "urgency",
                            "adj_urgency", "age_boost_pct", "repeat_boost_pct", "urgency_pct", "theme",
-                           "Policy score", "Model Priority", "Client Priority", "status", "Task Approved At", "Task Completed At"]],
+                           "Policy score", "Model Priority", "Client Priority", "status", "Item Approved At", "Item Completed At"]],
                      width="stretch", hide_index=True,
                      column_config={                                # wide enough for 'YYYY-MM-DD HH:MM:SS'
-                         "Task Approved At": st.column_config.TextColumn("Task Approved At", width=190),
-                         "Task Completed At": st.column_config.TextColumn("Task Completed At", width=190)})
+                         "Item Approved At": st.column_config.TextColumn("Item Approved At", width=190),
+                         "Item Completed At": st.column_config.TextColumn("Item Completed At", width=190)})

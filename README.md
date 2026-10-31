@@ -77,8 +77,8 @@ requests, and the buttons act on request ids.
 - Priorities are stored separately on each request: `model_priority` (filled once, never overwritten) and `client_priority`
   (latest saved value). Admin Access shows both in "Approved tasks waiting for completion" and in All Extracted Requests (open
   requests show the model's current suggestion until the client saves or approves).
-- Admin Access cards: Feedback items, Analyzed, **Approved tasks** (waiting for completion), **Completed tasks**.
-- Admin Access: section "Approved tasks waiting for completion" (highest client priority first) with a **Complete** button -> status Completed, "Task Completed At"
+- Admin Access cards: Feedback items, Analyzed, **Approved Items** (waiting for completion), **Completed Items**.
+- Admin Access: section "Approved Items Waiting for Completion" (highest client priority first); table columns "Item Approved At" / "Item Completed At". with a **Complete** button -> status Completed, "Task Completed At"
   saved. Completed is final.
 - Every change only applies to rows in the expected state, so double clicks / stale pages cannot create duplicates.
 - The ranked-themes chart is shown on Feedback Tracker only; the All Extracted Requests table on Admin Access only.
@@ -114,4 +114,10 @@ happens next?", "Our policy"), friendly error messages without technical details
 raised a request, no original feedback text, no unanalyzed feedback, no admin counters or score formulas. Both audiences can
 ask policy questions; clients see policy answers only from the uploaded policy document. Chats are cleared when the audience
 changes. Note: anything in an uploaded policy document can be asked about by clients, so upload only text meant for them.
+
+## Export Report (Feedback Tracker)
+At the bottom of the Feedback Tracker, **Export Report** downloads an Excel file (needs `openpyxl`, listed in requirements.txt) with the
+pending items exactly as listed, in the order shown (approved and completed items are excluded). Columns: Priority Number, Priority
+Score (the client's saved priority where set, otherwise the suggested one), Item Heading / Description, Request Count, Why,
+Policy Fit & Explanation. Policy explanations are shown in plain words (no P0-P4 codes, no section sign).
 
